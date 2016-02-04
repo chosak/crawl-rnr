@@ -165,7 +165,7 @@ class Crawler(object):
 
 if '__main__' == __name__:
     parser = argparse.ArgumentParser(
-        description='Crawl Boston Marathon results'
+        description='Crawl Rock n Roll race results'
     )
 
     default_filename = 'crawl.csv'
