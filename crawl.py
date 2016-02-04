@@ -126,6 +126,36 @@ class Crawler(object):
         results['age'] = int(lis[1].text.split(' ')[1])
         results['gender'] = lis[2].text.split(' ')[1]
 
+        stats = soup.find('ul', {'class': 'detail-performance-stats'})
+        lis = stats.findAll('li')
+
+        results['overall_place'] = int(lis[0].find('a').text.strip())
+        results['division_place'] = int(lis[1].find('a').text.strip())
+        results['division'] = lis[1].find('a').get('href').split('=')[-1]
+        results['gender_place'] = int(lis[2].find('a').text.strip())
+
+        split_points = soup.find('ul', {'class': 'marker_points'})
+        split_points = [li.text for li in split_points.findAll('li')]
+
+        split_times = soup.find('ul', {'class': 'marker_points_times'})
+        split_times = [li.text for li in split_times.findAll('li')]
+
+        results.update({
+            k.replace(' ', '_').lower(): v
+            for k, v in zip(split_points, split_times)
+        })
+
+        finish_labels = soup.find('ul', {'class': 'marker_timing'})
+        finish_labels = [li.text for li in finish_labels.findAll('li')]
+
+        finish_values = soup.find('ul', {'class': 'marker_timing_times'})
+        finish_values = [li.text.strip() for li in finish_values.findAll('li')]
+
+        results.update({
+            k.replace(' ', '_').lower(): v
+            for k, v in zip(finish_labels, finish_values)
+        })
+
         for k, v in results.iteritems():
             if isinstance(v, unicode):
                 results[k] = v.encode('utf-8')
