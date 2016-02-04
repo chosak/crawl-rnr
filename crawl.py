@@ -2,6 +2,7 @@ import argparse
 import csv
 import itertools
 import logging
+import re
 import requests
 import socket
 
@@ -18,6 +19,7 @@ class Crawler(object):
     def __init__(self):
         self.cache = self.get_cache()
         self.page_count = 100
+        self.base_url = 'http://running.competitor.com'
 
     def get_cache(self):
         try:
@@ -27,24 +29,20 @@ class Crawler(object):
         except socket.error:
             logger.info('no local memcached')
 
-    def crawl(self, event_id, sub_event_id):
-        generator = self.results_generator(event_id, sub_event_id)
+    def crawl(self, **params):
+        generator = self.results_generator(**params)
         return list(itertools.chain(generator))
 
-    def results_generator(self, event_id, sub_event_id):
+    def results_generator(self, **params):
         page = 1
 
         while True:
-            params = {
-                'event_id': event_id,
-                'sub_event_id': sub_event_id,
-                'page': page,
-            }
+            params['page'] = page
 
             logger.info('querying for {}'.format(params))
-            url = self.page_url(**params)
-            html = self.query(url)
-            results = self.parse_page(html)
+            page_url = self.page_url(**params)
+            html = self.query(page_url)
+            results = list(self.parse_page(html))
 
             if not results:
                 return
@@ -53,18 +51,19 @@ class Crawler(object):
 
             page += 1
 
-    def page_url(self, event_id, sub_event_id, page):
+    def page_url(self, city_id, year_id, event_id, page):
         return (
-            'http://running.competitor.com/rnrresults?'
-            'eId={event_id}'
-            '&eiId={sub_event_id}'
-            '&seId='
+            '{base_url}/rnrresults?'
+            'eId={city_id}'
+            '&eiId={year_id}'
+            '&seId={event_id}'
             '&resultsPage={page}'
             '&rowCount={page_count}'
-            '&firstname=&lastname=&bib=&gender=&division=&city=&state='
         ).format(
+            base_url=self.base_url,
+            city_id=city_id,
+            year_id=year_id,
             event_id=event_id,
-            sub_event_id=sub_event_id,
             page=page,
             page_count=self.page_count
         )
@@ -99,10 +98,39 @@ class Crawler(object):
 
     def parse_page(self, html):
         soup = BeautifulSoup(html)
-        return []
+
+        table = soup.find('div', {'class': 'rnrr_table_content'})
+        links = table.findAll('a')
+
+        for link in links:
+            runner_url = self.base_url + link.get('href')
+
+            regex = r'/rnrresults\?eId=\d+&eiId=\d+&seId=\d+&pId=\d+$'
+            if not re.search(regex, runner_url):
+                continue
+
+            html = self.query(runner_url)
+            yield self.parse_runner(html)
 
     def parse_runner(self, html):
-        pass
+        soup = BeautifulSoup(html)
+
+        results = {}
+
+        results['bib'] = int(soup.find('div', {'class': 'detail-bib'}).text)
+        results['name'] = soup.find('div', {'class': 'detail-pptname'}).text
+
+        details = soup.find('div', {'class': 'detail-pptlocation'})
+        lis = details.findAll('li')
+        results['location'] = lis[0].text
+        results['age'] = int(lis[1].text.split(' ')[1])
+        results['gender'] = lis[2].text.split(' ')[1]
+
+        for k, v in results.iteritems():
+            if isinstance(v, unicode):
+                results[k] = v.encode('utf-8')
+
+        return results
 
 
 if '__main__' == __name__:
@@ -113,14 +141,16 @@ if '__main__' == __name__:
     default_filename = 'crawl.csv'
     parser.add_argument('--filename', default=default_filename,
                         help='output filename (default %s)' % default_filename)
-    parser.add_argument('--event-id', default=54, help='event ID')
-    parser.add_argument('--sub-event-id', default=227, help='sub event ID')
+    parser.add_argument('--city-id', default=54, help='city ID')
+    parser.add_argument('--year-id', default=227, help='year ID')
+    parser.add_argument('--event-id', default=791, help='event ID')
 
     args = parser.parse_args()
 
     results = Crawler().crawl(
-        event_id=args.event_id,
-        sub_event_id=args.sub_event_id
+        city_id=args.city_id,
+        year_id=args.city_id,
+        event_id=args.event_id
     )
 
     logger.info('writing {} results to {}'.format(
