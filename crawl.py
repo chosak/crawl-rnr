@@ -31,7 +31,7 @@ class Crawler(object):
 
     def crawl(self, **params):
         generator = self.results_generator(**params)
-        return list(itertools.chain(generator))
+        return list(itertools.chain(*generator))
 
     def results_generator(self, **params):
         page = 1
@@ -41,8 +41,7 @@ class Crawler(object):
 
             logger.info('querying for {}'.format(params))
             page_url = self.page_url(**params)
-            html = self.query(page_url)
-            results = list(self.parse_page(html))
+            results = self.query(page_url, self.parse_page)
 
             if not results:
                 return
@@ -68,23 +67,24 @@ class Crawler(object):
             page_count=self.page_count
         )
 
-    def query(self, url):
+    def query(self, url, parser):
         cache_key = md5(url).hexdigest()
 
         if self.cache:
-            html = self.cache.get(cache_key)
+            results = self.cache.get(cache_key)
 
-            if html is not None:
-                logger.info('retrieved from cache')
-                return html
+            if results is not None:
+                logger.info('retrieved {} from cache'.format(url))
+                return results
 
-        logger.info('querying server')
+        logger.info('querying {}'.format(url))
         html = self.query_server(url)
+        results = parser(html)
 
         if self.cache:
-            self.cache.set(cache_key, html, time=0)
+            self.cache.set(cache_key, results, time=0)
 
-        return html
+        return results
 
     def query_server(self, url):
         response = requests.get(url)
@@ -102,6 +102,7 @@ class Crawler(object):
         table = soup.find('div', {'class': 'rnrr_table_content'})
         links = table.findAll('a')
 
+        runners = []
         for link in links:
             runner_url = self.base_url + link.get('href')
 
@@ -109,8 +110,9 @@ class Crawler(object):
             if not re.search(regex, runner_url):
                 continue
 
-            html = self.query(runner_url)
-            yield self.parse_runner(html)
+            runners.append(self.query(runner_url, self.parse_runner))
+
+        return runners
 
     def parse_runner(self, html):
         soup = BeautifulSoup(html)
@@ -179,7 +181,7 @@ if '__main__' == __name__:
 
     results = Crawler().crawl(
         city_id=args.city_id,
-        year_id=args.city_id,
+        year_id=args.year_id,
         event_id=args.event_id
     )
 
